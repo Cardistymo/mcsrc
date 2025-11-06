@@ -11,7 +11,7 @@ export class BooleanSetting {
         this.key = key;
         this.subject = new BehaviorSubject<boolean>(initialValue);
     }
-    
+
     get observable(): Observable<boolean> {
         return this.subject;
     }
@@ -27,4 +27,4 @@ export class BooleanSetting {
 }
 
 export const removeImports = new BooleanSetting('remove_imports', false);
-export const seenAbout = new BooleanSetting('seen_about', false);
+export const agreedEula = new BooleanSetting('eula', false);
