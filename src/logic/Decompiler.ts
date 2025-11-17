@@ -60,6 +60,11 @@ export const currentSource = currentResult.pipe(
 );
 
 async function decompileClass(className: string, jar: Jar, options: Options): Promise<DecompileResult> {
+    const stored = await getClassFromOPFS(className);
+    if (stored !== null) {
+        return stored;
+    }
+
     console.log(`Decompiling class: '${className}'`);
 
     const files = Object.keys(jar.entries);
@@ -90,10 +95,69 @@ async function decompileClass(className: string, jar: Jar, options: Options): Pr
         classTokens.push(...generateImportTokens(source));
         classTokens.sort((a, b) => a.start - b.start);
 
+        await storeClassInOPFS(className, source, classTokens);
+
         return { className, source, classTokens };
     } catch (e) {
         console.error(`Error during decompilation of class '${className}':`, e);
         return { className, source: `// Error during decompilation: ${(e as Error).message}`, classTokens: [] };
+    }
+}
+
+async function storeClassInOPFS(className: string, source: string, classTokens: ClassToken[]) {
+    const dirs = className.split('/');
+    const fileName = dirs.pop();
+    if (!fileName) {
+        console.error(`Error parsing className '${className}'. Filename not found!`);
+        return;
+    }
+
+    let dirHandle = await navigator.storage.getDirectory();
+    for (const dir of dirs) {
+        dirHandle = await dirHandle.getDirectoryHandle(dir, { create: true });
+    }
+
+    const sourceFileHandle = await dirHandle.getFileHandle(fileName.replace('.class', '.java'), { create: true });
+    const sourceWritableStream = await sourceFileHandle.createWritable({ keepExistingData: false });
+    await sourceWritableStream.write(source);
+    await sourceWritableStream.close();
+
+    const tokensFileHandle = await dirHandle.getFileHandle(fileName.replace('.class', '-tokens.json'), { create: true });
+    const tokensWritableStream = await tokensFileHandle.createWritable({ keepExistingData: false });
+    await tokensWritableStream.write(JSON.stringify(classTokens));
+    await tokensWritableStream.close();
+}
+
+async function getClassFromOPFS(className: string) {
+    const dirs = className.split('/');
+    const fileName = dirs.pop();
+    if (!fileName) {
+        console.error(`Error parsing className '${className}'. Filename not found!`);
+        return null;
+    }
+
+    let dirHandle = await navigator.storage.getDirectory();
+    for (const dir of dirs) {
+        try {
+            dirHandle = await dirHandle.getDirectoryHandle(dir, { create: false });
+        } catch {
+            return null;
+        }
+    }
+
+    try {
+        const sourceFileHandle = await dirHandle.getFileHandle(fileName.replace('.class', '.java'), { create: false });
+        const tokensFileHandle = await dirHandle.getFileHandle(fileName.replace('.class', '-tokens.json'), { create: false });
+
+        const sourceFile = await sourceFileHandle.getFile();
+        const source = await sourceFile.text();
+
+        const tokensFile = await tokensFileHandle.getFile();
+        const classTokens: ClassToken[] = JSON.parse(await tokensFile.text());
+
+        return { className, source, classTokens };
+    } catch (e) {
+        return null;
     }
 }
 
